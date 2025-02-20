@@ -1,0 +1,54 @@
+from machine import Pin
+import utime
+
+# Define ultrasonic sensor pins
+trigger = Pin(21, Pin.OUT)
+echo = Pin(20, Pin.IN)
+
+# Define stepper motor control pins
+IN1 = Pin(14, Pin.OUT)
+IN2 = Pin(15, Pin.OUT)
+IN3 = Pin(16, Pin.OUT)
+IN4 = Pin(17, Pin.OUT)
+
+# Stepper motor sequence (Half-step mode)
+step_sequence = [
+    [1, 0, 0, 0],
+    [1, 1, 0, 0],
+    [0, 1, 0, 0],
+    [0, 1, 1, 0],
+    [0, 0, 1, 0],
+    [0, 0, 1, 1],
+    [0, 0, 0, 1],
+    [1, 0, 0, 1]
+]
+
+def ultra():
+    trigger.low()
+    utime.sleep_us(2)
+    trigger.high()
+    utime.sleep_us(5)
+    trigger.low()
+
+    timeout_start = utime.ticks_ms()  # Start the timeout timer
+
+    # Wait for echo to go HIGH with timeout
+    while echo.value() == 0:
+        if utime.ticks_diff(utime.ticks_ms(), timeout_start) > 100:
+            print("Timeout: No echo received")
+            return 999  # Return an out-of-range value
+
+    signaloff = utime.ticks_us()
+
+    # Wait for echo to go LOW with timeout
+    while echo.value() == 1:
+        if utime.ticks_diff(utime.ticks_ms(), timeout_start) > 100:
+            print("Timeout: Echo stuck HIGH")
+            return 999
+
+    signalon = utime.ticks_us()
+    timepassed = signalon - signaloff
+    distance = (timepassed * 0.0343) / 2
+
+    print(f"Distance: {distance:.1f} cm")
+    return distance
