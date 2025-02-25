@@ -1,54 +1,47 @@
-from machine import Pin
+from machine import Pin, PWM
 import utime
 
-# Define ultrasonic sensor pins
-trigger = Pin(21, Pin.OUT)
-echo = Pin(20, Pin.IN)
+# Ultrasonic sensor pins
+TRIG = Pin(17, Pin.OUT)
+ECHO = Pin(16, Pin.IN)
 
-# Define stepper motor control pins
-IN1 = Pin(14, Pin.OUT)
-IN2 = Pin(15, Pin.OUT)
-IN3 = Pin(16, Pin.OUT)
-IN4 = Pin(17, Pin.OUT)
+# Servo motor setup
+servo = PWM(Pin(4))
+servo.freq(50)  # Servo PWM frequency (50Hz)
 
-# Stepper motor sequence (Half-step mode)
-step_sequence = [
-    [1, 0, 0, 0],
-    [1, 1, 0, 0],
-    [0, 1, 0, 0],
-    [0, 1, 1, 0],
-    [0, 0, 1, 0],
-    [0, 0, 1, 1],
-    [0, 0, 0, 1],
-    [1, 0, 0, 1]
-]
-
-def ultra():
-    trigger.low()
+# Function to measure distance
+def get_distance():
+    TRIG.low()
     utime.sleep_us(2)
-    trigger.high()
-    utime.sleep_us(5)
-    trigger.low()
+    TRIG.high()
+    utime.sleep_us(10)
+    TRIG.low()
 
-    timeout_start = utime.ticks_ms()  # Start the timeout timer
-
-    # Wait for echo to go HIGH with timeout
-    while echo.value() == 0:
-        if utime.ticks_diff(utime.ticks_ms(), timeout_start) > 100:
-            print("Timeout: No echo received")
-            return 999  # Return an out-of-range value
-
-    signaloff = utime.ticks_us()
-
-    # Wait for echo to go LOW with timeout
-    while echo.value() == 1:
-        if utime.ticks_diff(utime.ticks_ms(), timeout_start) > 100:
-            print("Timeout: Echo stuck HIGH")
-            return 999
-
-    signalon = utime.ticks_us()
-    timepassed = signalon - signaloff
-    distance = (timepassed * 0.0343) / 2
-
-    print(f"Distance: {distance:.1f} cm")
+    while ECHO.value() == 0:
+        start_time = utime.ticks_us()
+    while ECHO.value() == 1:
+        end_time = utime.ticks_us()
+    
+    duration = end_time - start_time
+    distance = (duration * 0.0343) / 2  # Convert to cm
+    
     return distance
+
+# Function to move the servo
+def move_servo(angle):
+    duty = int(1500 + (angle / 180) * 1000)  # Convert angle to duty cycle (500-2500us)
+    servo.duty_u16(duty * 64)  # Convert to 16-bit resolution
+
+# Main loop
+while True:
+    distance = get_distance()
+    print(f"Distance: {distance:.2f} cm")
+
+    if distance < 20:  # If object is within 20 cm
+        print("Object detected! Moving servo.")
+        move_servo(90)  # Move servo to 90 degrees
+    else:
+        move_servo(0)  # Reset servo position
+
+    utime.sleep(0.5)  # Small delay to avoid excessive triggering
+
