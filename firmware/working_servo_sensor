@@ -1,0 +1,63 @@
+from machine import Pin, PWM
+import utime
+
+# Ultrasonic sensor setup
+TRIG = Pin(16, Pin.OUT)
+ECHO = Pin(17, Pin.IN)
+
+# Servo motor setup
+servo = PWM(Pin(15))
+servo.freq(50)  # 50Hz frequency for servo control
+
+# Function to measure distance
+def get_distance():
+    TRIG.low()
+    utime.sleep_us(2)
+    TRIG.high()
+    utime.sleep_us(10)
+    TRIG.low()
+
+    start_time = utime.ticks_us()
+    timeout = utime.ticks_add(start_time, 30000)  # 30ms timeout (~5m max)
+
+    while ECHO.value() == 0:
+        start_time = utime.ticks_us()
+        if utime.ticks_us() > timeout:
+            return 999  # Timeout return large distance
+
+    timeout = utime.ticks_add(start_time, 30000)
+    while ECHO.value() == 1:
+        end_time = utime.ticks_us()
+        if utime.ticks_us() > timeout:
+            return 999
+
+    duration = end_time - start_time
+    distance = (duration * 0.0343) / 2  # Convert to cm
+
+    return distance if distance >= 0 else 999  # Prevent negative values
+
+# Function to move the servo
+def set_angle(angle):
+    min_duty = 1000  # 0 degrees
+    max_duty = 8000  # 180 degrees
+    duty = int((angle / 180) * (max_duty - min_duty) + min_duty)
+    servo.duty_u16(duty)
+    utime.sleep(0.1)  # Allow small delay for servo to move
+
+# Main loop
+while True:
+    distance = get_distance()
+    print(f"Distance: {distance:.2f} cm")
+
+    if distance < 20:  # If object is within 20 cm
+        print("Object detected! Sweeping servo.")
+        for angle in range(0, 181, 10):  # Move from 0 to 180 degrees
+            set_angle(angle)
+        for angle in range(180, -1, -10):  # Move back from 180 to 0 degrees
+            set_angle(angle)
+    else:
+        print("No object detected. Keeping servo at 0°.")
+        set_angle(0)  # Keep servo at 0 degrees
+
+    utime.sleep(0.5)  # Small delay before checking again
+
