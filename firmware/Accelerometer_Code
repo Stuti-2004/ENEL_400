@@ -1,0 +1,115 @@
+import machine
+import time
+from machine import Pin, PWM, I2C
+import utime
+import struct
+
+# # Ultrasonic sensor pins
+TRIG = Pin(17, Pin.OUT)
+ECHO = Pin(16, Pin.IN)
+
+# Set up PWM on GPIO2 (Pin 4 on Pico)
+servo = PWM(Pin(2))
+servo.freq(50)  # 50Hz for servo control
+
+# Define Motor A pins (PWM control for soft start)
+motor1 = PWM(Pin(20))  # Change to PWM mode
+motor2 = PWM(Pin(21))  # Change to PWM mode
+
+motor1.freq(1000)  # Set PWM frequency (1kHz)
+motor2.freq(1000)
+
+motor1.duty_u16(65535) #initialize motors as off
+motor2.duty_u16(65535)
+
+# Define I2C Pins (SDA = GP4, SCL = GP5)
+i2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)
+
+MPU6050_ADDR = 0x68  # Default I2C address for MPU6050
+
+# Wake up MPU6050 (it starts in sleep mode)
+i2c.writeto_mem(MPU6050_ADDR, 0x6B, b'\x00')
+
+
+def soft_start_motor():
+    """Gradually increase PWM to avoid high inrush current."""
+    print("Soft starting motors")
+    for duty in range(65535,30000,-5000):  # Increase PWM gradually
+            motor1.duty_u16(duty)
+            motor2.duty_u16(duty)
+            utime.sleep(0.1)  # Small delay for soft start
+
+def motor_stop():
+    """Stop motors by setting PWM to 100%."""
+    print("Motors stopping")
+    motor1.duty_u16(65535)
+    motor2.duty_u16(65535)
+
+# Function to measure distance
+def get_distance():
+    TRIG.low()
+    utime.sleep_us(2)
+    TRIG.high()
+    utime.sleep_us(10)
+    TRIG.low()
+
+    while ECHO.value() == 0:
+        start_time = utime.ticks_us()
+    while ECHO.value() == 1:
+        end_time = utime.ticks_us()
+    
+    duration = end_time - start_time
+    distance = (duration * 0.0343) / 2  # Convert to cm
+    
+    return distance
+
+def move_servo(angle):
+    """Move servo to an angle between 0-180 degrees."""
+    min_duty = 1300
+    max_duty = 8600
+    duty = int((angle / 180) * (max_duty - min_duty) + min_duty)
+    servo.duty_u16(duty)
+    print(f"Moving Servo to {angle} degrees")
+    
+def read_raw_data(register):
+    """ Read two bytes of data from a register """
+    data = i2c.readfrom_mem(MPU6050_ADDR, register, 2)
+    value = struct.unpack('>h', data)[0]  # Convert to signed integer
+    return value
+    
+def accelerometer():
+    accel_x = read_raw_data(0x3B)  # X-axis acceleration
+    accel_y = read_raw_data(0x3D)  # Y-axis acceleration
+    accel_z = read_raw_data(0x3F)  # Z-axis acceleration
+
+    print(f"Accel X: {accel_x}, Accel Y: {accel_y}, Accel Z: {accel_z}")
+
+    # Define acceptable ranges for accelerometer values
+    X_MIN, X_MAX = -5000, 5000  # Adjust as needed
+    Y_MIN, Y_MAX = -5000, 5000
+    Z_MIN, Z_MAX = 10000, 20000  # Example range where Z is dominant due to gravity
+
+    # Check if all values are within the range
+    if (X_MIN <= accel_x <= X_MAX) and (Y_MIN <= accel_y <= Y_MAX) and (Z_MIN <= accel_z <= Z_MAX):
+        return True  # Values are within range, continue execution
+    else:
+        print("Accelerometer values out of range, restarting loop...")
+        return False  # Restart while loop
+
+while True:
+    distance = get_distance()
+    print(f"Distance: {distance:.2f} cm")
+
+    if distance < 5:  # If object is within range
+        if accelerometer():  # Only proceed if accelerometer values are in range
+            print("Object detected! Moving servo.")
+            soft_start_motor()  # Use PWM ramp-up instead of instant ON
+            move_servo(90)
+            utime.sleep(2)  # Wait 2 seconds
+        else:
+            continue  # Skip iteration and restart loop
+
+    else:
+        move_servo(0)
+        motor_stop()
+        utime.sleep(0.5)
